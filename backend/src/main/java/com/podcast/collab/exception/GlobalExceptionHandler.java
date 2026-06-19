@@ -5,6 +5,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
@@ -51,6 +52,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
                 .body(ApiResponse.error(403, e.getMessage()));
+    }
+
+    @ExceptionHandler(TeamAccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTeamAccessDeniedException(TeamAccessDeniedException e) {
+        log.warn("团队越权访问: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     @ExceptionHandler(BadCredentialsException.class)
@@ -122,6 +131,20 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(400, e.getMessage()));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleHttpMessageNotReadableException(HttpMessageNotReadableException e) {
+        log.warn("请求体解析错误: {}", e.getMessage());
+        String message = "请求参数格式错误";
+        if (e.getCause() instanceof com.fasterxml.jackson.databind.exc.InvalidFormatException) {
+            message = "参数值格式不正确";
+        } else if (e.getMessage() != null && e.getMessage().contains("enum")) {
+            message = "枚举值不合法";
+        }
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(400, message));
     }
 
     @ExceptionHandler(Exception.class)
