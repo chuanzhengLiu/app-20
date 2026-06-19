@@ -29,6 +29,14 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(e.getCode(), e.getMessage()));
     }
 
+    @ExceptionHandler(CrossTeamAccessException.class)
+    public ResponseEntity<ApiResponse<Void>> handleCrossTeamAccessException(CrossTeamAccessException e) {
+        log.warn("跨团队访问被拒绝: {}", e.getMessage());
+        return ResponseEntity
+                .badRequest()
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleResourceNotFoundException(ResourceNotFoundException e) {
         log.warn("资源不存在: {}", e.getMessage());
