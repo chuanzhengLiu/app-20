@@ -1,28 +1,22 @@
 package com.podcast.collab.controller;
 
+import com.podcast.collab.annotation.AuditLog;
+import com.podcast.collab.annotation.TeamScope;
 import com.podcast.collab.dto.ApiResponse;
 import com.podcast.collab.dto.DistributionDTO;
-import com.podcast.collab.entity.DistributionPlatform;
+import com.podcast.collab.dto.request.CreateDistributionPlatformRequest;
+import com.podcast.collab.dto.request.CreateDistributionRecordRequest;
+import com.podcast.collab.dto.request.UpdateDistributionPlatformRequest;
+import com.podcast.collab.dto.request.UpdateDistributionStatusRequest;
 import com.podcast.collab.entity.DistributionRecord;
-import com.podcast.collab.entity.Episode;
-import com.podcast.collab.entity.Team;
-import com.podcast.collab.entity.User;
-import com.podcast.collab.repository.DistributionPlatformRepository;
-import com.podcast.collab.repository.DistributionRecordRepository;
-import com.podcast.collab.repository.EpisodeRepository;
-import com.podcast.collab.repository.TeamRepository;
-import com.podcast.collab.security.SecurityUtil;
-import com.podcast.collab.service.AuditService;
+import com.podcast.collab.service.DistributionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/distribution")
@@ -30,276 +24,119 @@ import java.util.stream.Collectors;
 @PreAuthorize("isAuthenticated()")
 public class DistributionController {
     
-    private final DistributionPlatformRepository platformRepository;
-    private final DistributionRecordRepository recordRepository;
-    private final EpisodeRepository episodeRepository;
-    private final TeamRepository teamRepository;
-    private final SecurityUtil securityUtil;
-    private final AuditService auditService;
+    private final DistributionService distributionService;
     
     @GetMapping("/platforms")
-    @PreAuthorize("isAuthenticated()")
+    @TeamScope
     public ResponseEntity<ApiResponse<List<DistributionDTO>>> getPlatforms(
             @RequestParam Long teamId) {
         
-        Long currentTeamId = securityUtil.getCurrentTeamId();
-        if (!currentTeamId.equals(teamId)) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("无权访问其他团队数据"));
-        }
-        
-        List<DistributionPlatform> platforms = platformRepository.findByTeamId(teamId);
-        List<DistributionDTO> dtos = platforms.stream()
-                .map(DistributionDTO::fromPlatform)
-                .collect(Collectors.toList());
-        
+        List<DistributionDTO> dtos = distributionService.getPlatforms();
         return ResponseEntity.ok(ApiResponse.success(dtos));
     }
     
     @PostMapping("/platforms")
     @PreAuthorize("hasAnyRole('ADMIN', 'PRODUCER', 'OPERATOR')")
+    @TeamScope(message = "无权操作其他团队数据")
+    @AuditLog(action = "CREATE_DISTRIBUTION_PLATFORM", entityType = "DISTRIBUTION_PLATFORM", extractEntityIdFromResult = true,
+            detailFields = {"name", "type"})
     public ResponseEntity<ApiResponse<DistributionDTO>> createPlatform(
             @RequestParam Long teamId,
-            @Valid @RequestBody Map<String, Object> request) {
+            @Valid @RequestBody CreateDistributionPlatformRequest request) {
         
-        Long currentTeamId = securityUtil.getCurrentTeamId();
-        if (!currentTeamId.equals(teamId)) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("无权操作其他团队数据"));
-        }
-        
-        Team team = teamRepository.findById(teamId)
-                .orElseThrow(() -> new IllegalArgumentException("团队不存在"));
-        
-        User currentUser = securityUtil.getCurrentUser();
-        
-        DistributionPlatform platform = DistributionPlatform.builder()
-                .team(team)
-                .name(request.get("name").toString())
-                .type(DistributionPlatform.PlatformType.valueOf(request.get("type").toString()))
-                .config(request.get("config") != null ? 
-                        (Map<String, Object>) request.get("config") : Map.of())
-                .build();
-        
-        platform = platformRepository.save(platform);
-        
-        auditService.logAction(teamId, currentUser.getId(), "CREATE_DISTRIBUTION_PLATFORM", 
-                "DISTRIBUTION_PLATFORM", platform.getId(), 
-                Map.of("name", platform.getName(), "type", platform.getType().name()));
-        
-        return ResponseEntity.ok(ApiResponse.success(DistributionDTO.fromPlatform(platform), "平台创建成功"));
+        DistributionDTO dto = distributionService.createPlatform(request);
+        return ResponseEntity.ok(ApiResponse.success(dto, "平台创建成功"));
     }
     
     @PutMapping("/platforms/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'PRODUCER', 'OPERATOR')")
+    @TeamScope(message = "无权操作其他团队数据")
+    @AuditLog(action = "UPDATE_DISTRIBUTION_PLATFORM", entityType = "DISTRIBUTION_PLATFORM", entityIdParam = "id")
     public ResponseEntity<ApiResponse<DistributionDTO>> updatePlatform(
             @PathVariable Long id,
             @RequestParam Long teamId,
-            @Valid @RequestBody Map<String, Object> request) {
+            @Valid @RequestBody UpdateDistributionPlatformRequest request) {
         
-        Long currentTeamId = securityUtil.getCurrentTeamId();
-        if (!currentTeamId.equals(teamId)) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("无权操作其他团队数据"));
-        }
-        
-        DistributionPlatform platform = platformRepository.findByIdAndTeamId(id, teamId)
-                .orElseThrow(() -> new IllegalArgumentException("平台不存在"));
-        
-        User currentUser = securityUtil.getCurrentUser();
-        
-        if (request.get("name") != null) {
-            platform.setName(request.get("name").toString());
-        }
-        if (request.get("config") != null) {
-            platform.setConfig((Map<String, Object>) request.get("config"));
-        }
-        
-        platform = platformRepository.save(platform);
-        
-        auditService.logAction(teamId, currentUser.getId(), "UPDATE_DISTRIBUTION_PLATFORM", 
-                "DISTRIBUTION_PLATFORM", id, null);
-        
-        return ResponseEntity.ok(ApiResponse.success(DistributionDTO.fromPlatform(platform), "平台更新成功"));
+        DistributionDTO dto = distributionService.updatePlatform(id, request);
+        return ResponseEntity.ok(ApiResponse.success(dto, "平台更新成功"));
     }
     
     @DeleteMapping("/platforms/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'PRODUCER')")
+    @TeamScope(message = "无权操作其他团队数据")
+    @AuditLog(action = "DELETE_DISTRIBUTION_PLATFORM", entityType = "DISTRIBUTION_PLATFORM", entityIdParam = "id")
     public ResponseEntity<ApiResponse<Void>> deletePlatform(
             @PathVariable Long id,
             @RequestParam Long teamId) {
         
-        Long currentTeamId = securityUtil.getCurrentTeamId();
-        if (!currentTeamId.equals(teamId)) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("无权操作其他团队数据"));
-        }
-        
-        DistributionPlatform platform = platformRepository.findByIdAndTeamId(id, teamId)
-                .orElseThrow(() -> new IllegalArgumentException("平台不存在"));
-        
-        User currentUser = securityUtil.getCurrentUser();
-        
-        platformRepository.delete(platform);
-        
-        auditService.logAction(teamId, currentUser.getId(), "DELETE_DISTRIBUTION_PLATFORM", 
-                "DISTRIBUTION_PLATFORM", id, null);
-        
+        distributionService.deletePlatform(id);
         return ResponseEntity.ok(ApiResponse.success(null, "平台删除成功"));
     }
     
     @GetMapping("/records")
-    @PreAuthorize("isAuthenticated()")
+    @TeamScope
     public ResponseEntity<ApiResponse<List<DistributionDTO>>> getDistributionRecords(
             @RequestParam Long teamId,
             @RequestParam(required = false) Long episodeId,
             @RequestParam(required = false) Long platformId,
             @RequestParam(required = false) DistributionRecord.Status status) {
         
-        Long currentTeamId = securityUtil.getCurrentTeamId();
-        if (!currentTeamId.equals(teamId)) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("无权访问其他团队数据"));
-        }
-        
-        List<DistributionRecord> records;
-        
-        if (episodeId != null) {
-            records = recordRepository.findByEpisodeIdAndTeamId(episodeId, teamId);
-        } else if (platformId != null) {
-            records = recordRepository.findByPlatformIdAndTeamId(platformId, teamId);
-        } else if (status != null) {
-            records = recordRepository.findByStatusAndTeamId(status, teamId);
-        } else {
-            records = recordRepository.findByTeamId(teamId);
-        }
-        
-        List<DistributionDTO> dtos = records.stream()
-                .map(DistributionDTO::fromRecord)
-                .collect(Collectors.toList());
-        
+        List<DistributionDTO> dtos = distributionService.getDistributionRecords(episodeId, platformId, status);
         return ResponseEntity.ok(ApiResponse.success(dtos));
     }
     
     @GetMapping("/records/{id}")
-    @PreAuthorize("isAuthenticated()")
+    @TeamScope
     public ResponseEntity<ApiResponse<DistributionDTO>> getDistributionRecord(
             @PathVariable Long id,
             @RequestParam Long teamId) {
         
-        Long currentTeamId = securityUtil.getCurrentTeamId();
-        if (!currentTeamId.equals(teamId)) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("无权访问其他团队数据"));
-        }
-        
-        DistributionRecord record = recordRepository.findByIdAndTeamId(id, teamId)
-                .orElseThrow(() -> new IllegalArgumentException("分发记录不存在"));
-        
-        return ResponseEntity.ok(ApiResponse.success(DistributionDTO.fromRecord(record)));
+        DistributionDTO dto = distributionService.getDistributionRecord(id);
+        return ResponseEntity.ok(ApiResponse.success(dto));
     }
     
     @PostMapping("/records")
     @PreAuthorize("hasAnyRole('ADMIN', 'PRODUCER', 'OPERATOR')")
+    @TeamScope(message = "无权操作其他团队数据")
+    @AuditLog(action = "CREATE_DISTRIBUTION_RECORD", entityType = "DISTRIBUTION_RECORD", extractEntityIdFromResult = true,
+            detailFields = {"episodeId", "platformId"})
     public ResponseEntity<ApiResponse<DistributionDTO>> createDistributionRecord(
             @RequestParam Long teamId,
-            @Valid @RequestBody Map<String, Object> request) {
+            @Valid @RequestBody CreateDistributionRecordRequest request) {
         
-        Long currentTeamId = securityUtil.getCurrentTeamId();
-        if (!currentTeamId.equals(teamId)) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("无权操作其他团队数据"));
-        }
-        
-        Long episodeId = Long.valueOf(request.get("episodeId").toString());
-        Long platformId = Long.valueOf(request.get("platformId").toString());
-        
-        Episode episode = episodeRepository.findByIdAndTeamId(episodeId, teamId)
-                .orElseThrow(() -> new IllegalArgumentException("节目不存在"));
-        
-        DistributionPlatform platform = platformRepository.findByIdAndTeamId(platformId, teamId)
-                .orElseThrow(() -> new IllegalArgumentException("平台不存在"));
-        
-        User currentUser = securityUtil.getCurrentUser();
-        
-        DistributionRecord record = DistributionRecord.builder()
-                .episode(episode)
-                .platform(platform)
-                .status(DistributionRecord.Status.PENDING)
-                .metadata(request.get("metadata") != null ? 
-                        (Map<String, Object>) request.get("metadata") : null)
-                .build();
-        
-        record = recordRepository.save(record);
-        
-        auditService.logAction(teamId, currentUser.getId(), "CREATE_DISTRIBUTION_RECORD", 
-                "DISTRIBUTION_RECORD", record.getId(), 
-                Map.of("episodeId", episodeId, "platformId", platformId));
-        
-        return ResponseEntity.ok(ApiResponse.success(DistributionDTO.fromRecord(record), "分发任务创建成功"));
+        DistributionDTO dto = distributionService.createDistributionRecord(request);
+        return ResponseEntity.ok(ApiResponse.success(dto, "分发任务创建成功"));
     }
     
     @PatchMapping("/records/{id}/status")
     @PreAuthorize("hasAnyRole('ADMIN', 'PRODUCER', 'OPERATOR')")
+    @TeamScope(message = "无权操作其他团队数据")
+    @AuditLog(action = "UPDATE_DISTRIBUTION_STATUS", entityType = "DISTRIBUTION_RECORD", entityIdParam = "id",
+            detailFields = {"status:newStatus", "publishUrl", "errorMessage"})
     public ResponseEntity<ApiResponse<DistributionDTO>> updateDistributionStatus(
             @PathVariable Long id,
             @RequestParam Long teamId,
-            @RequestBody Map<String, Object> request) {
+            @Valid @RequestBody UpdateDistributionStatusRequest request) {
         
-        Long currentTeamId = securityUtil.getCurrentTeamId();
-        if (!currentTeamId.equals(teamId)) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("无权操作其他团队数据"));
-        }
-        
-        DistributionRecord record = recordRepository.findByIdAndTeamId(id, teamId)
-                .orElseThrow(() -> new IllegalArgumentException("分发记录不存在"));
-        
-        DistributionRecord.Status newStatus = DistributionRecord.Status.valueOf(request.get("status").toString());
-        DistributionRecord.Status oldStatus = record.getStatus();
-        
-        User currentUser = securityUtil.getCurrentUser();
-        
-        record.setStatus(newStatus);
-        
-        if (request.get("publishUrl") != null) {
-            record.setPublishUrl(request.get("publishUrl").toString());
-        }
-        if (request.get("errorMessage") != null) {
-            record.setErrorMessage(request.get("errorMessage").toString());
-        }
-        if (newStatus == DistributionRecord.Status.PUBLISHED && record.getPublishedAt() == null) {
-            record.setPublishedAt(LocalDateTime.now());
-        }
-        
-        record = recordRepository.save(record);
-        
-        auditService.logAction(teamId, currentUser.getId(), "UPDATE_DISTRIBUTION_STATUS", 
-                "DISTRIBUTION_RECORD", id, 
-                Map.of("oldStatus", oldStatus.name(), "newStatus", newStatus.name()));
-        
-        return ResponseEntity.ok(ApiResponse.success(DistributionDTO.fromRecord(record), "状态更新成功"));
+        DistributionDTO dto = distributionService.updateDistributionStatus(id, request);
+        return ResponseEntity.ok(ApiResponse.success(dto, "状态更新成功"));
     }
     
     @DeleteMapping("/records/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'PRODUCER')")
+    @TeamScope(message = "无权操作其他团队数据")
+    @AuditLog(action = "DELETE_DISTRIBUTION_RECORD", entityType = "DISTRIBUTION_RECORD", entityIdParam = "id")
     public ResponseEntity<ApiResponse<Void>> deleteDistributionRecord(
             @PathVariable Long id,
             @RequestParam Long teamId) {
         
-        Long currentTeamId = securityUtil.getCurrentTeamId();
-        if (!currentTeamId.equals(teamId)) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("无权操作其他团队数据"));
-        }
-        
-        DistributionRecord record = recordRepository.findByIdAndTeamId(id, teamId)
-                .orElseThrow(() -> new IllegalArgumentException("分发记录不存在"));
-        
-        User currentUser = securityUtil.getCurrentUser();
-        
-        recordRepository.delete(record);
-        
-        auditService.logAction(teamId, currentUser.getId(), "DELETE_DISTRIBUTION_RECORD", 
-                "DISTRIBUTION_RECORD", id, null);
-        
+        distributionService.deleteDistributionRecord(id);
         return ResponseEntity.ok(ApiResponse.success(null, "分发记录删除成功"));
     }
     
     @GetMapping("/rss/{teamId}")
     public ResponseEntity<ApiResponse<String>> getRssFeed(@PathVariable Long teamId) {
-        String rssUrl = "http://localhost:8080/rss/team/" + teamId + "/feed.xml";
+        String rssUrl = distributionService.getRssFeedUrl(teamId);
         return ResponseEntity.ok(ApiResponse.success(rssUrl, "RSS订阅地址获取成功"));
     }
 }
