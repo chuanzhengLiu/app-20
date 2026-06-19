@@ -9,9 +9,11 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -114,6 +116,41 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(400, e.getMessage()));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleHttpMessageNotReadableException(HttpMessageNotReadableException e) {
+        String message = "请求体格式错误";
+        Throwable cause = e.getCause();
+        if (cause != null) {
+            String causeMsg = cause.getMessage();
+            if (causeMsg != null) {
+                if (causeMsg.contains("Cannot deserialize") && causeMsg.contains("Enum")) {
+                    message = "参数值非法：请检查枚举字段是否正确";
+                } else if (causeMsg.contains("JSON parse error")) {
+                    message = "JSON解析失败，请检查请求体格式";
+                } else if (causeMsg.contains("Cannot construct instance")) {
+                    message = "请求参数类型不匹配";
+                } else {
+                    message = "请求参数格式错误";
+                }
+            }
+        }
+        log.warn("请求体解析失败: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(400, message));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodArgumentTypeMismatchException(MethodArgumentTypeMismatchException e) {
+        String paramName = e.getName();
+        String requiredType = e.getRequiredType() != null ? e.getRequiredType().getSimpleName() : "未知类型";
+        String message = String.format("参数 '%s' 类型错误，期望类型: %s", paramName, requiredType);
+        log.warn("参数类型不匹配: {}", message);
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(400, message));
     }
 
     @ExceptionHandler(IllegalStateException.class)
