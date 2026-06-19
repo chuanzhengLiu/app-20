@@ -94,6 +94,7 @@ public class SecurityConfig {
                     "/api/auth/**",
                     "/api/share/**",
                     "/api/invite/**",
+                    "/api/distribution/rss/**",
                     "/api-docs/**",
                     "/swagger-ui/**",
                     "/swagger-ui.html",
